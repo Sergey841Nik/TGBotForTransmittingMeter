@@ -1,21 +1,19 @@
 from logging import Logger, getLogger
 from datetime import datetime
-import locale
-from webbrowser import get
-from dateutil.relativedelta import relativedelta
+
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.exc import SQLAlchemyError
 
 from database.database import Database
 from states.states import UserRegistration, MeterRegistration, MeterSubmission, EditSerialsStates
-from kbds.inline import get_btns, get_period_keyboard
+from kbds.inline import get_btns
 from kbds.utils import get_text_for_keyboard, get_period
 from filters.chat_type import ChatTypeFilter
+from utils.schemas import UserRegistrShema
 
 logger: Logger = getLogger(__name__)
 
@@ -41,6 +39,7 @@ async def show_user_info(message: Message, user: dict):
         f"Ваш профиль:\n"
         f"Ваше имя: {user['first_name']}\n"
         f"Вы проживаете в квартире: {user['apartment_number']}\n"
+        f"Информация о счетчиках добавлена в базу данных\n"
         f"Для подачи показаний используйте /submit"
     )
     await message.answer(text)
@@ -96,8 +95,16 @@ async def process_apartment(message: Message, state: FSMContext, session: AsyncS
     db = Database(session)
     meters_in_apartment = await db.get_all_meters_serials_and_descriptions(apartment)
     if meters_in_apartment:
-        pass
-     # Сюда добавить проверку, что счётчики для этой квартиры ужк введены в базе данных
+        await show_user_info(message, {"first_name": message.from_user.first_name, "apartment_number": apartment})
+        await db.add_user_info(UserRegistrShema(
+            user_id=message.from_user.id,
+            first_name=message.from_user.first_name,
+            last_name=message.from_user.last_name, 
+            apartment_number=apartment,
+            )
+        )
+        return
+
     if not 1 <= apartment <= 100:
         await message.answer("Номер квартиры должен быть от 1 до 100")
         return
