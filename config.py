@@ -5,7 +5,7 @@ BASE_DIR = Path(__file__).parent
 
 class Settings(BaseSettings):
     # Database config
-    DB_LITE: str = "sqlite+aiosqlite:///meter_readings.db"
+    DB_LITE: str
     
     # App config
     BOT_TOKEN: str

@@ -229,8 +229,8 @@ class Database:
 
     async def add_reading(self, meter_value_info: dict) -> None:
         """Добавляет показания счётчика"""
-        previous_month_date = date.today() - relativedelta(months=settings.DELTA_MONTH)
-        meter_value_info["reading_date"] = previous_month_date
+        previous_month = date.today() - relativedelta(months=settings.DELTA_MONTH)
+        meter_value_info["reading_date"] = previous_month
         readings = SubmissionSchema(**meter_value_info)
         logger.info("Показания от пользователя: %s", readings)
         try:
@@ -254,7 +254,21 @@ class Database:
         except SQLAlchemyError as e:
             await self.session.rollback()
             logger.error("Ошибка при сохранении показаний: %s", e)
-    
+
+    async def get_all_users(self):
+        """Получает информацию обо всех пользователях"""
+        try:
+            query: TextClause = text("""
+                SELECT user_id
+                FROM users
+                """)
+            result = await self.session.execute(query)
+            res = result.mappings().fetchall()
+            return res
+        except SQLAlchemyError as e:
+            logger.error("Ошибка при получении информации о пользователях: %s", e)
+            
+                    
     async def get_meter_types_for_period(self, apartment_number: int, period: datetime):
         """Получает список типов счётчиков для указанного периода"""
         logger.info("Проверка типов счетчиков за месяц: %s и год %s", f"{period.month:02d}", str(period.year))
@@ -333,3 +347,74 @@ class Database:
         except SQLAlchemyError as e:
             await self.session.rollback()
             logger.error("Ошибка при обновлении серийного номера: %e", e)
+    
+    async def get_all_readings_for_period(self):
+        """Получает показания всех счетчиков за указанный период"""
+        period: date = date.today() - relativedelta(months=settings.DELTA_MONTH)
+        try:
+            stmt = text("""
+                SELECT u.apartment_number, mt.name, r.value, r.reading_date
+                FROM readings r
+                JOIN meters m ON r.meter_id = m.meter_id
+                JOIN meter_types mt ON m.type_id = mt.type_id
+                JOIN users u ON r.user_id = u.user_id
+                WHERE strftime('%Y', r.reading_date) = :year
+                AND strftime('%m', r.reading_date) = :month
+                ORDER BY u.apartment_number, mt.name
+            """)
+            result = await self.session.execute(
+                stmt.bindparams(
+                    year=str(period.year),
+                    month=f"{period.month:02d}"
+                )
+            )
+            return result.mappings().fetchall()
+        except SQLAlchemyError as e:
+            await self.session.rollback()
+            logger.error("Ошибка при получении показаний за период: %s", e)
+            return None
+
+    async def get_apartments_without_readings(self):
+        """Получает список квартир, не подавших показания за указанный период"""
+        period: date = date.today() - relativedelta(months=settings.DELTA_MONTH)
+        try:
+            stmt: TextClause = text("""
+                WITH apartments_with_readings 
+                    AS (
+                        SELECT DISTINCT apartment_number
+                        FROM readings
+                            JOIN meters USING (meter_id)
+                        WHERE strftime('%Y', readings.reading_date) = :year
+                        AND strftime('%m', readings.reading_date) = :month
+                    )
+                SELECT users.apartment_number
+                FROM users
+                WHERE users.apartment_number NOT IN (
+                    SELECT apartment_number FROM apartments_with_readings
+                )
+            """)
+            result = await self.session.execute(
+                stmt.bindparams(
+                    year=str(period.year),
+                    month=f"{period.month:02d}"
+                )
+            )
+            return result.scalars().all()
+        except SQLAlchemyError as e:
+            await self.session.rollback()
+            logger.error("Ошибка при получении списка квартир без показаний: %s", e)
+            return None
+
+    async def delete_user_by_apartment(self, apartment_number: int, user_id: int):
+        """Удаляет пользователя по номеру квартиры"""
+        try:
+            stmt = text("""
+                DELETE FROM users
+                WHERE apartment_number = :apartment_number
+                AND user_id = :user_id
+            """)
+            await self.session.execute(stmt.bindparams(apartment_number=apartment_number, user_id=user_id))
+            await self.session.commit()
+        except SQLAlchemyError as e:
+            await self.session.rollback()
+            logger.error("Ошибка при удалении пользователя: %s", e)
