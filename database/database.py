@@ -1,9 +1,10 @@
 from logging import Logger, getLogger
 from datetime import datetime, date
-from typing import Any
+from typing import Any, Sequence
 
 from dateutil.relativedelta import relativedelta
 from sqlalchemy import TextClause, text
+from sqlalchemy.engine.row import RowMapping
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -174,8 +175,12 @@ class Database:
 
             result = await self.session.execute(query)
             res = result.mappings().first()
-            logger.info("Найденные данные о пользователе: %s", res)
-            return res
+            if res:
+                logger.info("Найденные данные о пользователе: %s", res)
+                return res
+            else:
+                logger.info("Данные о пользователе не найдены")
+                return None
         except SQLAlchemyError as e:
             await self.session.rollback()
             logger.error("Ошибка при получении информации о пользователе: %s", e)
@@ -200,8 +205,12 @@ class Database:
             ) 
             result = await self.session.execute(query)
             res = result.mappings().fetchall()
-            logger.info("Найденные данные о серийных номерах счётчиков: %s", res)
-            return res
+            if res:
+                logger.info("Найденные данные о серийных номерах счётчиков: %s", res)
+                return res
+            else:
+                logger.info("Данные о серийных номерах счётчиков не найдены")
+                return []
         except SQLAlchemyError as e:
             await self.session.rollback()
             logger.error("Ошибка при получении информации о серийных номерах счётчиков: %s", e)
@@ -224,8 +233,9 @@ class Database:
             return res
         except SQLAlchemyError as e:
             await self.session.rollback()
-            logger.error("Ошибка при получении информации о серийных номерах счётчиков: %s", e)      
-   
+            logger.error("Ошибка при получении информации о серийных номерах счётчиков: %s", e)
+        except Exception as e:
+            logger.error("Неизвестная ошибка при получении информации о серийных номерах счётчиков: %s", e)
 
     async def add_reading(self, meter_value_info: dict) -> None:
         """Добавляет показания счётчика"""
@@ -348,19 +358,20 @@ class Database:
             await self.session.rollback()
             logger.error("Ошибка при обновлении серийного номера: %e", e)
     
-    async def get_all_readings_for_period(self):
+    async def get_all_readings_for_period(self) -> Sequence[RowMapping] | None:
         """Получает показания всех счетчиков за указанный период"""
         period: date = date.today() - relativedelta(months=settings.DELTA_MONTH)
         try:
             stmt = text("""
-                SELECT u.apartment_number, mt.name, r.value, r.reading_date
-                FROM readings r
-                JOIN meters m ON r.meter_id = m.meter_id
-                JOIN meter_types mt ON m.type_id = mt.type_id
-                JOIN users u ON r.user_id = u.user_id
-                WHERE strftime('%Y', r.reading_date) = :year
-                AND strftime('%m', r.reading_date) = :month
-                ORDER BY u.apartment_number, mt.name
+                SELECT users.apartment_number, name, serial_number, value, reading_date
+                FROM readings
+                JOIN meters USING (meter_id)
+                JOIN serials USING (serial_id)
+                JOIN meter_types USING (type_id)
+                JOIN users USING (user_id)
+                WHERE strftime('%Y', reading_date) = :year
+                AND strftime('%m', reading_date) = :month
+                ORDER BY users.apartment_number, meter_types.name
             """)
             result = await self.session.execute(
                 stmt.bindparams(
