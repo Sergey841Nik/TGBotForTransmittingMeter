@@ -77,7 +77,7 @@
     ```
     DB_LITE=sqlite+aiosqlite:///YOUR_DB.db
     BOT_TOKEN=YOUR_BOT_TOKEN
-    ADMIN_IDS=[123456789, 987654321]
+    ADMIN_IDS=[]
     MODE=DEV
     ```
     Замените `YOUR_BOT_TOKEN` на токен вашего бота, а `ADMIN_IDS` на список Telegram ID администраторов.
