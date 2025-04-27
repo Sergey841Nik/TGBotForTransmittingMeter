@@ -12,13 +12,13 @@ from sqlalchemy.engine.row import RowMapping
 from sqlalchemy.ext.asyncio import AsyncSession
 from utils.excel_utils import create_excel_file
 
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-
 
 from config import settings
 from filters.chat_type import ChatTypeFilter, IsAdmin
 from kbds.repley import get_kyboard
+from kbds.inline import get_btns
 from database.database import Database
+from states.states import DeleteUserState
 
 logger: Logger = getLogger(__name__)
 
@@ -32,11 +32,6 @@ ADMIN_KB: types.ReplyKeyboardMarkup = get_kyboard(
     "Отправить напоминание\nо подаче показаний",
     placeholder="Выберите действие",
 )
-
-
-class DeleteUserState(StatesGroup):
-    apartment_number = State()
-    confirm_delete = State()
 
 @router.message(Command("admin"))
 async def cmd_admin(message: types.Message):
@@ -64,38 +59,59 @@ async def get_all_readings(message: types.Message, session: AsyncSession):
         await message.answer("Нет данных за выбранный период.")
     
 
-@router.message(F.text == "Удалить пользователя по номеру квартиры")
+@router.message(F.text == "Удалить пользователя\nпо номеру квартиры")
 async def delete_user(message: types.Message, state: FSMContext):
-    await message.answer("Введите номер квартиры для удаления:")
+    await message.answer("Введите номер квартиры для удаления его жильца:")
     await state.set_state(DeleteUserState.apartment_number)
 
 @router.message(DeleteUserState.apartment_number)
-async def process_delete_user_apartment(message: types.Message, state: FSMContext):
+async def process_delete_user_apartment(message: types.Message, state: FSMContext, session: AsyncSession):
     try:
         apartment_number = int(message.text)
         await state.update_data(apartment_number=apartment_number)
-        keyboard = InlineKeyboardMarkup(inline_keyboard=[
-            [
-                InlineKeyboardButton(text="Удалить", callback_data="confirm_delete"),
-                InlineKeyboardButton(text="Отмена", callback_data="cancel_delete")
-            ]
-        ])
+        db = Database(session)
+        users = await db.get_users_by_apartment(apartment_number)
+        logger.info("Пользователи с квартирой %s: %s", apartment_number, users)
+        if not users:
+            await message.answer("Нет пользователей с такой квартирой.")
+            await state.clear()
+            return
+        btn = {user["first_name"]: f"deleteuser_{user["user_id"]}_{user["first_name"]}" for user in users}
+        logger.info("Текст для кнопки %s", btn)
         await message.answer(
-            f"Вы уверены, что хотите удалить пользователя с квартирой {apartment_number}?",
-            reply_markup=keyboard
-        )
-        await state.set_state(DeleteUserState.confirm_delete)
-    except ValueError:
-        await message.answer("Неверный формат номера квартиры.")
+            f"Выберете пользователя из {apartment_number} для удаления",
+            reply_markup=get_btns(btn=btn)
+        ) 
+        await state.set_state(DeleteUserState.user_for_delete)
+    
+    except ValueError as e:
+        await message.answer("Неверный формат номера квартиры. %s", e)
         await state.clear()
+
+@router.callback_query(DeleteUserState.user_for_delete, F.data.startswith("deleteuser_"))
+async def process_delete_user_callback(callback: types.CallbackQuery, state: FSMContext):
+    logger.info("Кнопка %s", callback.data)
+    user_data: list[str] = callback.data.split("_")
+    user_id = int(user_data[1])
+    first_name = "".join(user_data[2:])
+    data = await state.get_data()
+    apartment_number = data.get("apartment_number")
+    btn = {"Удалить": "confirm_delete", "Отмена":"cancel_delete"}
+    await callback.message.answer(
+        f"Вы уверены, что хотите удалить пользователя {first_name}\nиз квартиры {apartment_number}?",
+        reply_markup=get_btns(btn=btn)
+    )
+    await state.update_data(user_id=user_id)
+    await state.set_state(DeleteUserState.confirm_delete)
 
 @router.callback_query(DeleteUserState.confirm_delete, F.data == "confirm_delete")
 async def process_delete_user_confirmation(callback: types.CallbackQuery, state: FSMContext, session: AsyncSession):
     data = await state.get_data()
     apartment_number = data.get("apartment_number")
-    if apartment_number:
+    user_id = data.get("user_id")
+    if apartment_number and user_id:
         db = Database(session)
-        await db.delete_user_by_apartment(apartment_number)
+        await db.delete_user_by_apartment(apartment_number, user_id)
         await callback.message.answer(f"Пользователь с квартирой {apartment_number} удален.")
     else:
         await callback.message.answer("Не удалось получить номер квартиры.")
@@ -115,5 +131,6 @@ async def send_reminder(message: types.Message, bot: Bot, session: AsyncSession)
         try:
             await bot.send_message(user["user_id"], "Пожалуйста, не забудьте подать показания счетчиков!")
         except Exception as e:
+            await message.answer("Не удалось отправить сообщение пользователю %s", user["user_id"])
             logger.exception("Не удалось отправить сообщение пользователю %s: %s", user["user_id"], e)
     await message.answer("Напоминания отправлены.")
