@@ -23,3 +23,8 @@ class MeterSubmission(StatesGroup):
 class EditSerialsStates(StatesGroup):
     select_meter = State()  # Выбор счетчика для редактирования
     edit_serial = State()   # Ввод нового серийного номера
+
+class DeleteUserState(StatesGroup):
+    apartment_number = State()
+    user_for_delete = State()
+    confirm_delete = State()
