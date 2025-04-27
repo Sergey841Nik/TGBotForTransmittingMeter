@@ -1,0 +1,12 @@
+services:
+  app:
+    build: .
+    volumes:
+      - .:/app
+    restart: always
+    environment:
+      - DB_LITE=${DB_LITE}
+      - BOT_TOKEN=${BOT_TOKEN}
+      - ADMIN_IDS=${ADMIN_IDS}
+    env_file:
+      - .env
