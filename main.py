@@ -1,4 +1,12 @@
-from logging import Logger, getLogger, basicConfig, FileHandler, INFO, ERROR, StreamHandler
+from logging import (
+    Logger,
+    getLogger,
+    basicConfig,
+    FileHandler,
+    INFO,
+    ERROR,
+    StreamHandler,
+)
 from pathlib import Path
 import asyncio
 from aiogram import Bot, Dispatcher, types
@@ -7,8 +15,10 @@ from aiogram.enums import ParseMode
 
 from database.engine import create_db, drop_db
 from middlewere.db_middleware import DbSessionMiddleware
+from middlewere.error_middleware import GlobalErrorMiddleware
 from config import settings
 from handlers.user_handlers import router as user_routers
+from handlers.admin_handlers import router as admin_routers
 from commands.bot_cmds_list import privat
 
 logger: Logger = getLogger(__name__)
@@ -28,13 +38,14 @@ stream_handler.setLevel(INFO)
 file_handler.setLevel(ERROR)
 
 # Настройка базовой конфигурации логгера
-basicConfig(level=INFO, format=FORMAT, handlers=[stream_handler, file_handler])
+basicConfig(level=ERROR, format=FORMAT, handlers=[stream_handler, file_handler])
 
-default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+default = DefaultBotProperties(parse_mode=ParseMode.HTML)
 bot = Bot(token=settings.BOT_TOKEN, default=default)
 dp = Dispatcher()
 
 dp.include_router(user_routers)
+dp.include_router(admin_routers)
 
 
 async def on_startup(bot):
@@ -51,6 +62,7 @@ async def main():
     dp.shutdown.register(on_shutdown)  # запускается при остановке бота
 
     dp.update.middleware(DbSessionMiddleware())
+    dp.update.middleware(GlobalErrorMiddleware())
 
     await bot.delete_webhook(drop_pending_updates=True)
     # await bot.delete_my_commands(scope=types.BotCommandScopeAllPrivateChats())
@@ -60,6 +72,7 @@ async def main():
     await dp.start_polling(
         bot, polling_timeout=3, allowed_updates=dp.resolve_used_update_types()
     )
+
 
 if __name__ == "__main__":
     asyncio.run(main())

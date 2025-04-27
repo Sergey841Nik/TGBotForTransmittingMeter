@@ -10,7 +10,6 @@ class Settings(BaseSettings):
     # App config
     BOT_TOKEN: str
     ADMIN_IDS: list[int]
-    MODE: str
     DELTA_MONTH: int = 1
 
     @property
