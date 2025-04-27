@@ -31,7 +31,7 @@ serials = Table(
     "serials", metadata,
     Column("serial_id", Integer, primary_key=True),
     Column("meter_id", Integer, ForeignKey("meters.meter_id")),
-    Column("serial_number", String, nullable=False), 
+    Column("serial_number", String(20), nullable=False), 
 )
 
 readings = Table(
@@ -49,5 +49,5 @@ meter_descriptions = Table(
     "meter_descriptions", metadata,
     Column("desc_id", Integer, primary_key=True),
     Column("serial_id", Integer, ForeignKey("serials.serial_id")),
-    Column("description", String, nullable=False),
+    Column("description", String(50), nullable=False),
 )
