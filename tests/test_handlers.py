@@ -174,14 +174,25 @@ async def test_start_submit(bot: Bot, dp: Dispatcher):
 
     # Мок для пользователя
     db_mock = MagicMock()
-    db_mock.get_info_for_user.return_value = {"apartment_number": 42}
-    db_mock.get_meter_types_for_period.return_value = ["hot_water", "cold_water"]
+    db_mock.get_info_for_user = AsyncMock(return_value={"apartment_number": 42})
+    db_mock.get_meter_types_for_period = AsyncMock(
+        return_value=["hot_water", "cold_water"]
+    )
 
     with (
         patch("handlers.user_handlers.Database", return_value=db_mock),
         patch(
             "handlers.user_handlers.get_period",
-            return_value=("Май", datetime(2023, 5, 1)),
+            return_value=("Май", datetime(2025, 5, 1)),
         ),
     ):
         await user_handlers.start_submit(message, state, session)
+
+    # Проверяем, что методы были вызваны
+    db_mock.get_info_for_user.assert_awaited_once_with(message.from_user.id)
+    db_mock.get_meter_types_for_period.assert_awaited_once()
+
+    # Проверяем ответ
+    message.answer.assert_called_once()
+    print(f"{message.answer.call_args=}")
+    assert "Подать показания за Май 2025" in message.answer.call_args[0][0]
